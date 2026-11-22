@@ -72,9 +72,19 @@ Trivy scan (fixable critical findings fail the build) → push to Docker Hub wit
 → `ansible-playbook playbooks/deploy.yml` → smoke test (the API must report the new build number) →
 automatic `kubectl rollout undo` if anything after the deploy fails.
 
-Setting up Jenkins, the webhook tunnel, the cluster, Vault and ELK is described step by step in
-[docs/runbook.md](docs/runbook.md). Design decisions are in [docs/architecture.md](docs/architecture.md),
-and requirements in [docs/requirements.md](docs/requirements.md).
+Setting up Jenkins (configured as code), the webhook relay, the cluster, Vault and ELK, pausing the
+environment, and the demonstration script are in [docs/runbook.md](docs/runbook.md). Design decisions are in
+[docs/architecture.md](docs/architecture.md), requirements in [docs/requirements.md](docs/requirements.md).
+
+## Measured results
+
+| What | Result |
+| --- | --- |
+| Change detection on 31 hand-labelled clause pairs ([docs/evaluation.md](docs/evaluation.md)) | precision 1.00, recall 1.00, alignment 1.00, exact type 0.94 |
+| Push to running deployment | about 12 minutes, started by the GitHub webhook |
+| Rolling update under a request loop | 450 requests, 0 failed |
+| Autoscaling under load (`scripts/load_test.py`) | backend 2 → 5 replicas, about 32 searches/s, 99.85 % success |
+| LLM impact reports (Gemini) | every report verified: all citations point at supplied clauses |
 
 ## Configuration
 

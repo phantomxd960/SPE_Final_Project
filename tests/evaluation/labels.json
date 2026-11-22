@@ -1,0 +1,64 @@
+{
+  "description": "Hand-labelled clause pairs for evaluating change detection (SRS Section 10). Keys are new clause numbers; deleted clauses use 'old:<number>'. A label is the expected change type, or [type, old clause number] when the clause moved.",
+  "pairs": [
+    {
+      "name": "REG001 transaction reporting",
+      "old": "samples/regulations/REG001_v1.0.md",
+      "new": "samples/regulations/REG001_v2.0.md",
+      "expected": {
+        "1.1": "unchanged",
+        "1.2": "unchanged",
+        "2.1": "unchanged",
+        "2.2": "unchanged",
+        "3.1": "unchanged",
+        "3.2": "added",
+        "3.3": [
+          "renumbered",
+          "3.2"
+        ],
+        "4.1": "unchanged",
+        "4.2.1": "substantially_changed",
+        "4.2.2": "substantially_changed",
+        "4.3": "unchanged",
+        "4.4": "added",
+        "5.1": "unchanged",
+        "5.2": "unchanged",
+        "6.1": "modified"
+      }
+    },
+    {
+      "name": "REG002 consumer credit",
+      "old": "tests/evaluation/data/REG002_v1.0.md",
+      "new": "tests/evaluation/data/REG002_v2.0.md",
+      "expected": {
+        "1.1": "unchanged",
+        "1.2": "semantically_equivalent",
+        "2.1": "unchanged",
+        "2.2": "substantially_changed",
+        "2.3": "substantially_changed",
+        "2.4": "added",
+        "3.1": "modified",
+        "3.2": "unchanged",
+        "4.1": "unchanged",
+        "4.2": "unchanged",
+        "5.1": "added",
+        "5.2": [
+          "renumbered",
+          "5.1"
+        ],
+        "5.3": [
+          "renumbered",
+          "5.2"
+        ],
+        "6.1": "substantially_changed",
+        "old:6.2": "deleted",
+        "7.1": "substantially_changed"
+      }
+    }
+  ],
+  "notes": [
+    "The first run (before the fix below) scored precision 1.00, recall 1.00, type accuracy 0.94 and alignment 0.97: REG002 clause 1.2, a complete rewrite with the same meaning, shared too few words to be aligned and was reported as deleted + added.",
+    "Fix: two clauses with the same number now also match when their embedding similarity is at least 0.85, so a reworded clause keeps its identity while an unrelated clause under a shifted number still does not (ai-engine/regdiff_ai/analysis/align.py).",
+    "REG002 clause 3.1 is labelled 'modified', but 'withdraw ... without giving a reason' and 'cancel ... do not need to give any reason' arguably mean the same, so the system's 'semantically equivalent' is defensible. The label was kept as originally written rather than changed after seeing the result."
+  ]
+}

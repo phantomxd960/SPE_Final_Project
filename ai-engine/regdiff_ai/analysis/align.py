@@ -3,7 +3,8 @@
 Passes, each working only on clauses still unmatched:
   1. same number and identical text        -> unchanged
   2. identical text under another number   -> renumbered
-  3. same number (unless the texts are unrelated, which signals a shift)
+  3. same number, unless the texts are unrelated (a shift after an insertion);
+     a full rewrite still matches when its meaning is close (embeddings)
   4. greedy best text similarity above the threshold
 Whatever is left is deleted (old) or added (new).
 """
@@ -11,8 +12,10 @@ Whatever is left is deleted (old) or added (new).
 from dataclasses import dataclass
 
 from regdiff_ai.analysis.text import normalize, similarity
+from regdiff_common.embeddings import cosine
 
 UNRELATED_BELOW = 0.30
+SAME_MEANING_FROM = 0.85  # embedding similarity that marks a reworded, not a different, clause
 
 
 @dataclass(frozen=True)
@@ -45,7 +48,7 @@ def align(old: list[ClauseInput], new: list[ClauseInput], min_similarity: float 
 
     match(lambda o, n: o.number == n.number and normalize(o.text) == normalize(n.text), "exact")
     match(lambda o, n: normalize(o.text) == normalize(n.text), "text")
-    match(lambda o, n: o.number == n.number and similarity(o.text, n.text) >= UNRELATED_BELOW, "number")
+    match(lambda o, n: o.number == n.number and _related(o, n), "number")
 
     candidates = sorted(
         ((similarity(o.text, n.text), i, j) for i, o in old_left.items() for j, n in new_left.items()),
@@ -59,6 +62,14 @@ def align(old: list[ClauseInput], new: list[ClauseInput], min_similarity: float 
             del old_left[i], new_left[j]
 
     return _in_reading_order(old, new, matched, old_left, new_left)
+
+
+def _related(old: ClauseInput, new: ClauseInput) -> bool:
+    if similarity(old.text, new.text) >= UNRELATED_BELOW:
+        return True
+    if old.embedding and new.embedding:
+        return cosine(list(old.embedding), list(new.embedding)) >= SAME_MEANING_FROM
+    return False
 
 
 def _in_reading_order(old, new, matched, old_left, new_left) -> list[AlignedPair]:

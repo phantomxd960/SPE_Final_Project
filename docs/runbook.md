@@ -1,111 +1,118 @@
 # Runbook
 
-Step-by-step setup of the full delivery chain on one Windows laptop with Docker Desktop and WSL (Ubuntu).
-The same steps work on Linux, using Minikube instead of Docker Desktop Kubernetes (`K8S_FLAVOUR=minikube`).
+Setting up, running and demonstrating the full delivery chain on one Windows laptop with Docker Desktop
+(Kubernetes enabled) and WSL Ubuntu. Every step below was run on the development laptop. On plain Linux,
+use Minikube instead with `K8S_FLAVOUR=minikube`.
+
+| Service | Address | Login |
+| --- | --- | --- |
+| Application (ingress) | http://regulationdiff.localhost:8880 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env` |
+| API documentation | http://regulationdiff.localhost:8880/api/docs | |
+| Jenkins | http://localhost:8090 | `admin` / `jenkins/secrets/jenkins-admin-password.txt` |
+| Kibana, dashboard *RegulationDiff overview* | http://localhost:30601 | none (security disabled locally) |
+| Vault | `kubectl -n vault exec -it vault-0 -- sh` | root token `root` (dev mode) |
+
+`*.localhost` always resolves to 127.0.0.1, so there is no hosts-file entry to edit. Port 8880 (ingress) and 8090
+(Jenkins) avoid 80/8080/8081, which other local tools commonly use.
 
 ## 1. Prerequisites
 
-- Docker Desktop with **Kubernetes enabled** (Settings → Kubernetes). Give WSL 10–12 GB of memory in
-  `%UserProfile%\.wslconfig`:
+- Docker Desktop with **Kubernetes enabled**. Give WSL enough memory in `%UserProfile%\.wslconfig`, then run
+  `wsl --shutdown` and restart Docker Desktop:
   ```ini
   [wsl2]
-  memory=12GB
+  memory=11GB
+  swap=8GB
   ```
-- In WSL Ubuntu: `sudo apt install -y ansible python3-venv`, and the Docker Desktop WSL integration turned on.
-- A Docker Hub account and a GitHub repository for this code.
+- Ansible in WSL, no sudo needed: `python3 -m pip install --user --break-system-packages ansible==10.6.0`.
+- A GitHub repository (public, or give Jenkins a read-only token) and a Docker Hub access token (Read & Write).
 
-## 2. Bring the environment up with Ansible (one command)
+## 2. Local configuration (git-ignored)
 
-From WSL, in the repository:
+| File | Content |
+| --- | --- |
+| `.env` | Copy of `.env.example` with `DB_PASSWORD`, `JWT_SECRET`, `ADMIN_PASSWORD`, `LLM_MODE`, `LLM_MODEL`, `LLM_API_KEY` |
+| `jenkins/.env` | Copy of `jenkins/.env.example`: Docker Hub user, repository URL, kubeconfig path, smee channel |
+| `jenkins/secrets/dockerhub-token.txt` | Docker Hub access token |
+| `jenkins/secrets/jenkins-admin-password.txt` | Any password for the Jenkins `admin` user |
+
+## 3. Bring the environment up with Ansible (one command)
+
+From WSL, in the repository (the wrapper loads `.env` and works around Ansible ignoring `ansible.cfg` on
+world-writable Windows mounts):
 
 ```bash
-cd ansible
-export DOCKERHUB_NAMESPACE=<your-dockerhub-user>
-export DB_PASSWORD=... JWT_SECRET=... ADMIN_PASSWORD=...   # LLM_API_KEY only if LLM_MODE is not mock
-ansible-playbook playbooks/site.yml
+bash scripts/ansible.sh site.yml --skip-tags common   # common needs sudo for apt; skip it if packages exist
 ```
 
-The roles run in order: `common`, `docker`, `kubernetes` (metrics-server, ingress-nginx, namespaces), `vault`
-(Helm chart in dev mode, Kubernetes auth, policy, secrets), `monitoring` (ELK in the `logging` namespace,
-Kibana data view) and `application` (first deploy, `image_tag=latest`). Run a single part with
-`--tags vault` and similar.
+Roles in order: `common`, `docker`, `kubernetes` (metrics-server, ingress-nginx on port 8880, namespaces), `vault`
+(Helm chart in dev mode, Kubernetes auth, read-only policy, secrets), `monitoring` (ELK in `logging`, Kibana
+data view and dashboard) and `application` (deploy, wait for rollout). Run one part with `--tags vault`.
 
-> Vault runs in dev mode, which keeps data in memory. After restarting Docker Desktop, run
-> `ansible-playbook playbooks/site.yml --tags vault` to re-seed the secrets, then
-> `kubectl -n regulationdiff rollout restart deploy`.
-
-## 3. Jenkins
+## 4. Jenkins and the webhook (no clicks)
 
 ```bash
 docker compose -f jenkins/docker-compose.yml up -d --build
-docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 ```
 
-Open http://localhost:8090, finish the setup wizard (the plugins are pre-installed), then:
+Jenkins configures itself from `jenkins/casc/jenkins.yaml` (Configuration as Code): the admin user, the
+`dockerhub-credentials` and `kubeconfig` credentials, global environment variables and the `regulationdiff`
+pipeline job with the GitHub push trigger. The `webhook-relay` container forwards the smee.io channel to Jenkins.
 
-1. **Credentials** (Manage Jenkins → Credentials → Global):
-   - `dockerhub-credentials`: *Username with password*, your Docker Hub user and an access token.
-   - `kubeconfig`: *Secret file*, your `~/.kube/config`. The Docker Desktop server address
-     `kubernetes.docker.internal:6443` also resolves inside the Jenkins container.
-2. **Global environment** (Manage Jenkins → System → Global properties): `DOCKERHUB_NAMESPACE=<your user>`.
-   For Vault mode also set `DB_PASSWORD`, `JWT_SECRET` and `ADMIN_PASSWORD`, so redeploys re-seed the same values.
-3. **Job**: New Item → *Pipeline* → "Pipeline script from SCM" → Git → your repository URL, branch `main`,
-   script path `jenkins/Jenkinsfile`. Tick **GitHub hook trigger for GITScm polling**.
+In GitHub → Settings → Webhooks, add the smee channel URL (`https://smee.io/<channel>`, from
+https://smee.io/new), content type `application/json`, push events only. Run the job once manually; after that
+every push to `main` starts it ("Started by GitHub push").
 
-## 4. GitHub webhook through a tunnel
+## 5. Pause and resume
 
-GitHub cannot reach `localhost`, so expose Jenkins with a tunnel:
+The full stack needs about 9 GB. Pause it when it is not in use; no data is lost:
 
 ```bash
-ngrok http 8090            # or: npx smee-client --url https://smee.io/<channel> --target http://localhost:8090/github-webhook/
+bash scripts/environment.sh stop     # scale app, ELK and Vault to zero; stop Jenkins and the relay
+bash scripts/environment.sh start    # from WSL: resume everything and re-seed Vault
 ```
 
-In GitHub → Settings → Webhooks, add `https://<tunnel-host>/github-webhook/`, content type
-`application/json`, event "Just the push event". Push a commit: Jenkins starts without a manual click.
+## 6. Demonstration script (SRS Section 11)
 
-## 5. Demonstration script (SRS Section 11)
+Before the demo: run `environment.sh start`, close other heavy applications, and open the three addresses above.
 
-1. `scripts/request-loop.sh http://regulationdiff.localhost:8880/api/version` in one terminal: it counts failed requests.
-2. Change something visible (for example a heading in `frontend/src/pages/ComparisonsPage.jsx`), commit and push.
-3. Show Jenkins: tests, Trivy, Docker Hub push, the Ansible deploy, the smoke test.
-4. Refresh http://regulationdiff.localhost: the footer shows the new UI and API build number. The request loop
-   shows the build switching with `failed: 0`.
-5. Kibana (http://localhost:30601): Discover with data view *RegulationDiff logs*, filtered by `build_number`.
-6. Autoscaling: `python scripts/load_test.py --password <admin password>` while running
-   `kubectl -n regulationdiff get hpa -w`.
-7. Vault: `kubectl -n vault exec vault-0 -- vault kv get secret/regulationdiff/app` (root token from the role defaults).
-8. Domain flow: `python scripts/seed_demo.py --url http://regulationdiff.localhost:8880 --password <admin password>`,
-   then open the comparison:
-   - clause 4.2.1 is *substantially changed* (EUR 10,000 → EUR 5,000);
-   - the dependency graph reaches POL-TM and POL-RPT and their processes and controls, but not POL-KYC;
-   - the impact report cites REG001 v2.0 §4.2.1, page 3; click a citation to open the source clause.
-9. Rollback: push a commit that breaks the API's start-up (for example raise an exception in
-   `regdiff_api/main.py`). The smoke test fails and Jenkins runs `kubectl rollout undo`.
+1. **Live patching.** In one terminal: `bash scripts/request-loop.sh` (polls `/api/version`, counts failures).
+2. **Push to deploy.** Change something visible (for example the subtitle in
+   `frontend/src/pages/ComparisonsPage.jsx`), commit, `git push`.
+3. **Jenkins** (about 12 minutes): started by the GitHub push; lint, unit tests, image builds, API and integration
+   tests against a throwaway PostgreSQL, Trivy scan, Docker Hub push, Ansible deploy, smoke test.
+4. **Refresh the application.** The footer shows the new UI and API build number. The request loop shows the
+   switch from the old to the new build with `failed: 0`.
+5. **Kibana**, dashboard *RegulationDiff overview*: request rate, latency, errors, requests per build, jobs,
+   detected changes, LLM calls, verified reports. In Discover, filter by `build_number` or `request_id`.
+6. **Autoscaling.** `python scripts/load_test.py --password <admin password>` while watching
+   `kubectl -n regulationdiff get hpa backend -w`: the backend grows from 2 to 5 replicas and back.
+7. **Vault.** `kubectl -n vault exec vault-0 -- env VAULT_TOKEN=root vault kv get secret/regulationdiff/app`,
+   then show that the backend pod has a `vault-agent-init` container and that no Kubernetes Secret exists.
+8. **Domain flow.** `python scripts/seed_demo.py --url http://regulationdiff.localhost:8880 --password <admin password>`
+   (skip if already loaded), open the comparison:
+   - clause 4.2.1 is *substantially changed* (EUR 10,000 → EUR 5,000), 4.2.2 changed from *should* to *must*;
+   - the dependency graph reaches POL-TM and POL-RPT with their processes and controls, but not POL-KYC;
+   - the impact report (Gemini) cites REG001 v2.0 §4.2.1, page 3; click a citation to open the source clause.
+9. **Quality gate and rollback.** Build #2 shows a failing test stopping the pipeline before anything is pushed.
+   A build whose new pods never become healthy fails the Ansible rollout wait or the smoke test, and the
+   pipeline runs `scripts/ci/rollback.sh` (`kubectl rollout undo`): the previous build keeps serving.
+10. **Evaluation.** `docs/evaluation.md`: change detection precision and recall 1.00 on 31 labelled clause pairs.
 
-## 6. Kibana dashboards
+## 7. Kibana dashboard
 
-`monitoring/kibana/setup.sh` creates the `regulationdiff-*` data view and imports
-`monitoring/kibana/dashboards.ndjson` if that file exists. Useful fields: `service`, `event`, `level`, `status`,
-`duration_ms`, `build_number`, `request_id`, `outcome`. To build the dashboard:
+`monitoring/kibana/build_dashboards.py` generates `monitoring/kibana/dashboards.ndjson` (8 panels), and
+`monitoring/kibana/setup.sh` imports it together with the `regulationdiff-*` data view. Logstash drops Filebeat's
+ECS `event` object and indexes `status` as text, so the application fields never conflict.
 
-| Panel | Visualization |
-| --- | --- |
-| API requests over time | `event: http_request`, count over `@timestamp`, split by `service` |
-| Error rate | `outcome: error`, count over time |
-| Latency | `event: http_request`, average and 95th percentile of `duration_ms` |
-| Documents processed / failed jobs | `event: job_done` and `event: job_failed`, count |
-| Changes detected by type | `event: comparison_done`, sum of `substantially_changed`, `added`, … |
-| LLM calls and failures | `event: llm_call` and `event: impact_llm_failed` |
-| Deployments | unique count of `build_number` over time |
-
-Then export it (Stack Management → Saved objects → Export) to `monitoring/kibana/dashboards.ndjson` and commit it.
-
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| Pods `Pending`, events show insufficient memory | Raise the WSL memory limit, or scale ELK down: `kubectl -n logging scale deploy/kibana --replicas=0` |
-| HPA shows `<unknown>` targets | metrics-server is not ready yet; check `kubectl -n kube-system get deploy metrics-server` |
-| Backend `CrashLoopBackOff` in Vault mode | Vault was restarted and lost its data: run the `vault` role again |
-| Webhook delivers but nothing builds | The job must have "GitHub hook trigger for GITScm polling" ticked and must have run once manually |
-| Integration stage cannot reach the test database | Jenkins must have access to the Docker socket (`/var/run/docker.sock` volume) |
+| Everything slow, probes time out, `kubectl` hangs | The laptop is out of memory: pause with `environment.sh stop`, close other applications, or scale ELK down |
+| Backend `OOMKilled` under load | Should not happen any more (one embedding at a time per pod, 1 GiB limit); check `kubectl top pods` |
+| HPA shows `<unknown>` | Pods just restarted, or metrics-server is not ready: `kubectl -n kube-system get deploy metrics-server` |
+| Backend `CrashLoopBackOff` after a restart | Vault (dev mode) lost its secrets: `bash scripts/ansible.sh site.yml --tags vault`, then restart the pods |
+| Webhook delivers but nothing builds | The job must have run once manually; check `docker logs webhook-relay` |
+| Jenkins cannot fetch the repository | A private repository needs a GitHub token credential, or make it public |
+| Gemini answers slowly or with HTTP 503 | Set `LLM_MODEL` to another model; reports fall back to unverified deterministic content after one retry |

@@ -80,3 +80,20 @@ def test_semantically_equivalent_uses_embeddings():
         min_similarity=0.0,
     )[0]
     assert classify(pair).change_type == EQUIVALENT
+
+
+def test_full_rewrite_with_the_same_meaning_keeps_its_clause_number():
+    meaning = (0.6, 0.8, 0.0)
+    pairs = align(
+        [ClauseInput(1, "1.2", "A credit agreement is any deal granting credit to a person.", meaning)],
+        [ClauseInput(2, "1.2", "Any arrangement extending loans to private people counts here.", meaning)],
+    )
+    assert len(pairs) == 1 and pairs[0].method == "number"
+
+
+def test_same_number_with_different_meaning_is_not_forced_together():
+    pairs = align(
+        [ClauseInput(1, "4.3", "Records are kept for five years by compliance.", (1.0, 0.0, 0.0))],
+        [ClauseInput(2, "4.3", "Suspicious patterns go to the money laundering officer.", (0.0, 1.0, 0.0))],
+    )
+    assert {p.method for p in pairs} == {"unmatched"}
