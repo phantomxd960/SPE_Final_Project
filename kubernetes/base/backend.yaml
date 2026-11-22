@@ -28,7 +28,7 @@ spec:
           ports:
             - { containerPort: 8000, name: http }
           readinessProbe:
-            httpGet: { path: /health/ready, port: http }
+            httpGet: { path: /health/readyz, port: http }
             periodSeconds: 5
             failureThreshold: 3
           livenessProbe:
