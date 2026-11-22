@@ -26,6 +26,7 @@ if TEST_DATABASE_URL:
         ADMIN_PASSWORD="test-password",
         BUILD_NUMBER="42",
         GIT_COMMIT="abc1234",
+        BUILD_TIME="unknown",  # CI sets the real value; tests must not depend on it
     )
 
 TABLES = (
