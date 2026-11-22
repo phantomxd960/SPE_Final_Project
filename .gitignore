@@ -24,7 +24,7 @@ dist/
 coverage/
 
 # Runtime data and reports
-data/
+/data/
 reports/
 
 # Editors and OS
