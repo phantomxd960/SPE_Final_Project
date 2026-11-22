@@ -1,6 +1,6 @@
 """Generate CPU load on the backend so the HPA scales it (DEV-13).
 
-    python scripts/load_test.py --url http://regulationdiff.localhost --seconds 180 --workers 20
+    python scripts/load_test.py --url http://regulationdiff.localhost:8880 --seconds 180 --workers 20
     kubectl -n regulationdiff get hpa -w          # in another terminal
 
 Uses only the standard library. Semantic search embeds every query, so it is
@@ -52,7 +52,7 @@ def worker(base: str, token: str, deadline: float, stats: dict, lock: threading.
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--url", default="http://regulationdiff.localhost")
+    parser.add_argument("--url", default="http://regulationdiff.localhost:8880")
     parser.add_argument("--email", default="admin@regulationdiff.local")
     parser.add_argument("--password", default="admin123")
     parser.add_argument("--seconds", type=int, default=180)

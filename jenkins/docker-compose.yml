@@ -1,23 +1,51 @@
-# Run Jenkins locally:  docker compose -f jenkins/docker-compose.yml up -d --build
-# Then open http://localhost:8081 (initial password: docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword)
+# Jenkins for RegulationDiff, fully configured from jenkins/casc/jenkins.yaml.
+#   docker compose -f jenkins/docker-compose.yml up -d --build
+# Open http://localhost:8090 and sign in as "admin" with the password in
+# jenkins/secrets/jenkins-admin-password.txt.
+#
+# Required local files (git-ignored): jenkins/secrets/dockerhub-token.txt,
+# jenkins/secrets/jenkins-admin-password.txt, and your kubeconfig (KUBECONFIG_PATH).
 name: jenkins
 
 services:
   jenkins:
     build: .
     container_name: jenkins
-    user: root  # needed to use the host Docker socket on Docker Desktop
+    user: root  # needed for the host Docker socket on Docker Desktop
     ports:
-      - "8081:8080"
+      - "8090:8080"
     environment:
-      DOCKERHUB_NAMESPACE: ${DOCKERHUB_NAMESPACE:-regulationdiff}
+      DOCKERHUB_NAMESPACE: ${DOCKERHUB_NAMESPACE:?set DOCKERHUB_NAMESPACE to your Docker Hub user}
+      GIT_REPOSITORY_URL: ${GIT_REPOSITORY_URL:?set GIT_REPOSITORY_URL to the GitHub repository}
       K8S_FLAVOUR: ${K8S_FLAVOUR:-docker-desktop}
+      LLM_MODE: ${LLM_MODE:-mock}
+      LLM_MODEL: ${LLM_MODEL:-}
+    secrets:
+      - dockerhub-token
+      - jenkins-admin-password
+      - kubeconfig
     volumes:
       - jenkins_home:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     restart: unless-stopped
+
+  # Forwards GitHub webhooks to Jenkins, because GitHub cannot reach localhost.
+  # SMEE_URL is a channel from https://smee.io/new, also set as the repository's webhook URL.
+  webhook-relay:
+    image: node:20.18.1-alpine
+    container_name: webhook-relay
+    command: ["npx", "--yes", "smee-client@2.0.4", "--url", "${SMEE_URL:?create a channel at https://smee.io/new}", "--target", "http://jenkins:8080/github-webhook/"]
+    depends_on:
+      - jenkins
+    restart: unless-stopped
+
+secrets:
+  dockerhub-token:
+    file: ./secrets/dockerhub-token.txt
+  jenkins-admin-password:
+    file: ./secrets/jenkins-admin-password.txt
+  kubeconfig:
+    file: ${KUBECONFIG_PATH:?set KUBECONFIG_PATH to your kubeconfig file}
 
 volumes:
   jenkins_home:

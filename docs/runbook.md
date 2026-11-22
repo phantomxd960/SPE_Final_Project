@@ -41,7 +41,7 @@ docker compose -f jenkins/docker-compose.yml up -d --build
 docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 ```
 
-Open http://localhost:8081, finish the setup wizard (the plugins are pre-installed), then:
+Open http://localhost:8090, finish the setup wizard (the plugins are pre-installed), then:
 
 1. **Credentials** (Manage Jenkins → Credentials → Global):
    - `dockerhub-credentials`: *Username with password*, your Docker Hub user and an access token.
@@ -57,7 +57,7 @@ Open http://localhost:8081, finish the setup wizard (the plugins are pre-install
 GitHub cannot reach `localhost`, so expose Jenkins with a tunnel:
 
 ```bash
-ngrok http 8081            # or: npx smee-client --url https://smee.io/<channel> --target http://localhost:8081/github-webhook/
+ngrok http 8090            # or: npx smee-client --url https://smee.io/<channel> --target http://localhost:8090/github-webhook/
 ```
 
 In GitHub → Settings → Webhooks, add `https://<tunnel-host>/github-webhook/`, content type
@@ -65,7 +65,7 @@ In GitHub → Settings → Webhooks, add `https://<tunnel-host>/github-webhook/`
 
 ## 5. Demonstration script (SRS Section 11)
 
-1. `scripts/request-loop.sh http://regulationdiff.localhost/api/version` in one terminal: it counts failed requests.
+1. `scripts/request-loop.sh http://regulationdiff.localhost:8880/api/version` in one terminal: it counts failed requests.
 2. Change something visible (for example a heading in `frontend/src/pages/ComparisonsPage.jsx`), commit and push.
 3. Show Jenkins: tests, Trivy, Docker Hub push, the Ansible deploy, the smoke test.
 4. Refresh http://regulationdiff.localhost: the footer shows the new UI and API build number. The request loop
@@ -74,7 +74,7 @@ In GitHub → Settings → Webhooks, add `https://<tunnel-host>/github-webhook/`
 6. Autoscaling: `python scripts/load_test.py --password <admin password>` while running
    `kubectl -n regulationdiff get hpa -w`.
 7. Vault: `kubectl -n vault exec vault-0 -- vault kv get secret/regulationdiff/app` (root token from the role defaults).
-8. Domain flow: `python scripts/seed_demo.py --url http://regulationdiff.localhost --password <admin password>`,
+8. Domain flow: `python scripts/seed_demo.py --url http://regulationdiff.localhost:8880 --password <admin password>`,
    then open the comparison:
    - clause 4.2.1 is *substantially changed* (EUR 10,000 → EUR 5,000);
    - the dependency graph reaches POL-TM and POL-RPT and their processes and controls, but not POL-KYC;

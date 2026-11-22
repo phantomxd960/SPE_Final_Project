@@ -10,6 +10,10 @@ app_namespace: regulationdiff
 registry: "{{ lookup('env', 'DOCKERHUB_NAMESPACE') | default('regulationdiff', true) }}"
 image_tag: latest
 
+# AI provider (not secret); the key itself is in app_secrets.
+llm_mode: "{{ lookup('env', 'LLM_MODE') | default('mock', true) }}"
+llm_model: "{{ lookup('env', 'LLM_MODEL') | default('', true) }}"
+
 # Secrets: Vault (DEV-11) when use_vault is true, otherwise a Kubernetes Secret.
 use_vault: true
 app_secrets:

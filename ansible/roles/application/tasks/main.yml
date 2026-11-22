@@ -21,7 +21,8 @@
 - name: Apply manifests for build {{ image_tag }}
   ansible.builtin.command:
     cmd: kubectl apply -f -
-    stdin: "{{ rendered.stdout | replace('__REGISTRY__', registry) | replace('__IMAGE_TAG__', image_tag | string) }}"
+    stdin: "{{ rendered.stdout | replace('__REGISTRY__', registry) | replace('__IMAGE_TAG__', image_tag | string)
+               | replace('__LLM_MODE__', llm_mode) | replace('__LLM_MODEL__', llm_model | to_json) }}"
   register: applied
   changed_when: "'configured' in applied.stdout or 'created' in applied.stdout"
 

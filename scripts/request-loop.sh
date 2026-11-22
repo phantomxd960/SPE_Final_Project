@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Live-patching proof (DEV-14): keep calling the API during a rolling update and
 # count failures. Run it, push a change, watch Jenkins deploy, then press Ctrl+C.
-#   scripts/request-loop.sh http://regulationdiff.localhost/api/version
+#   scripts/request-loop.sh http://regulationdiff.localhost:8880/api/version
 set -uo pipefail
 
-url="${1:-http://regulationdiff.localhost/api/version}"
+url="${1:-http://regulationdiff.localhost:8880/api/version}"
 ok=0
 failed=0
 last_build=""

@@ -44,6 +44,14 @@
       register: ingress_apply
       changed_when: "'created' in ingress_apply.stdout"
 
+- name: Publish the ingress controller on port {{ ingress_http_port }}
+  when: k8s_flavour == "docker-desktop"
+  ansible.builtin.command: >-
+    kubectl -n ingress-nginx patch service ingress-nginx-controller --type=json
+    -p '[{"op":"replace","path":"/spec/ports/0/port","value":{{ ingress_http_port }}}]'
+  register: ingress_port
+  changed_when: "'no change' not in ingress_port.stdout"
+
 - name: Create the application and logging namespaces
   ansible.builtin.shell: |
     set -o pipefail

@@ -10,8 +10,8 @@ data:
   DB_NAME: regulationdiff
   DB_USER: regulationdiff
   ADMIN_EMAIL: admin@regulationdiff.local
-  LLM_MODE: mock
-  LLM_MODEL: ""
+  LLM_MODE: __LLM_MODE__    # filled in by Ansible (mock | openai | gemini)
+  LLM_MODEL: __LLM_MODEL__
   EMBEDDINGS_MODE: fastembed
   GRAPH_INFERRED_THRESHOLD: "0.75"
   STORAGE_DIR: /data/documents

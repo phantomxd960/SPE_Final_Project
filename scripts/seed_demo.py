@@ -1,7 +1,7 @@
 """Load the demonstration data (SRS Section 11) and start the REG001 comparison.
 
     python scripts/seed_demo.py --url http://localhost:3000
-    python scripts/seed_demo.py --url http://regulationdiff.localhost --password <admin password>
+    python scripts/seed_demo.py --url http://regulationdiff.localhost:8880 --password <admin password>
 
 Standard library only. Safe to re-run: existing versions are skipped.
 """
