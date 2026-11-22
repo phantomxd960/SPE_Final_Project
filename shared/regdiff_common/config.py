@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     embeddings_mode: Literal["mock", "fastembed"] = "mock"
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     model_cache_dir: str = "./data/models"
+    # One ONNX thread per process: under a Kubernetes CPU limit, many threads only get throttled.
+    embedding_threads: int = 1
 
     # Analysis thresholds (Section 8, tuned on the labelled set)
     align_min_similarity: float = 0.60

@@ -47,11 +47,11 @@ class MockEmbedder:
 
 
 class FastEmbedder:
-    def __init__(self, model_name: str, cache_dir: str) -> None:
+    def __init__(self, model_name: str, cache_dir: str, threads: int | None = None) -> None:
         from fastembed import TextEmbedding  # imported lazily: optional dependency
 
         self.name = model_name
-        self._model = TextEmbedding(model_name=model_name, cache_dir=cache_dir)
+        self._model = TextEmbedding(model_name=model_name, cache_dir=cache_dir, threads=threads)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         return [vector.tolist() for vector in self._model.embed(texts)]
@@ -61,7 +61,7 @@ class FastEmbedder:
 def get_embedder() -> Embedder:
     settings = get_settings()
     if settings.embeddings_mode == "fastembed":
-        return FastEmbedder(settings.embedding_model, settings.model_cache_dir)
+        return FastEmbedder(settings.embedding_model, settings.model_cache_dir, settings.embedding_threads)
     return MockEmbedder()
 
 

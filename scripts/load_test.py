@@ -44,10 +44,12 @@ def worker(base: str, token: str, deadline: float, stats: dict, lock: threading.
             with urllib.request.urlopen(request, timeout=15) as response:
                 response.read()
             key = "ok"
-        except (urllib.error.URLError, TimeoutError):
-            key = "failed"
+        except urllib.error.HTTPError as error:
+            key = f"http_{error.code}"
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            key = type(getattr(error, "reason", error)).__name__
         with lock:
-            stats[key] += 1
+            stats[key] = stats.get(key, 0) + 1
 
 
 def main() -> None:
@@ -60,7 +62,7 @@ def main() -> None:
     args = parser.parse_args()
 
     token = login(args.url, args.email, args.password)
-    stats, lock = {"ok": 0, "failed": 0}, threading.Lock()
+    stats, lock = {"ok": 0}, threading.Lock()
     deadline = time.monotonic() + args.seconds
     threads = [
         threading.Thread(target=worker, args=(args.url, token, deadline, stats, lock), daemon=True)
@@ -72,7 +74,8 @@ def main() -> None:
     while any(thread.is_alive() for thread in threads):
         time.sleep(5)
         elapsed = time.monotonic() - started
-        print(f"{elapsed:5.0f}s  ok={stats['ok']}  failed={stats['failed']}  rate={stats['ok'] / elapsed:.1f}/s")
+        failures = {k: v for k, v in stats.items() if k != "ok"}
+        print(f"{elapsed:5.0f}s  ok={stats['ok']}  rate={stats['ok'] / elapsed:.1f}/s  failures={failures}")
     print(f"Done: {stats}")
 
 
