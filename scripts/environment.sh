@@ -2,6 +2,7 @@
 # Pause or resume the whole RegulationDiff environment without losing data.
 #   scripts/environment.sh stop    scale app, ELK and Vault to zero; stop Jenkins and the webhook relay
 #   scripts/environment.sh start   bring everything back (run from WSL so Vault can be re-seeded)
+#   SKIP_ELK=1 scripts/environment.sh start   ... without ELK, saving about 2.5 GB of memory
 # Databases, Jenkins history and Docker Hub images are kept; nothing is deleted.
 set -uo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -41,11 +42,13 @@ case "${1:-}" in
     kubectl -n regulationdiff rollout status statefulset/postgres --timeout=300s >/dev/null
     for d in backend frontend; do scale regulationdiff "deployment/$d" 2; done
     scale regulationdiff deployment/ai-worker 1
-    echo "Starting ELK"
-    scale logging statefulset/elasticsearch 1
-    for d in logstash kibana; do scale logging "deployment/$d" 1; done
-    kubectl -n logging patch daemonset filebeat --type=json \
-      -p '[{"op":"remove","path":"/spec/template/spec/nodeSelector"}]' >/dev/null 2>&1
+    if [ "${SKIP_ELK:-0}" != 1 ]; then
+      echo "Starting ELK"
+      scale logging statefulset/elasticsearch 1
+      for d in logstash kibana; do scale logging "deployment/$d" 1; done
+      kubectl -n logging patch daemonset filebeat --type=json \
+        -p '[{"op":"remove","path":"/spec/template/spec/nodeSelector"}]' >/dev/null 2>&1
+    fi
     echo "Starting Jenkins and the webhook relay"
     docker compose -f "$root/jenkins/docker-compose.yml" start >/dev/null 2>&1
     for d in backend ai-worker frontend; do
