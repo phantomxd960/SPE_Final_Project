@@ -117,6 +117,11 @@ pipeline {
     }
 
     stage('Push to Docker Hub') {
+      environment {
+        // A private Docker config per build: Jenkins shares the host's Docker engine, and another
+        // build's `docker logout` must not sign this one out mid-push (seen in build #9).
+        DOCKER_CONFIG = "${env.WORKSPACE}/.docker-config"
+      }
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials',
                                           usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
