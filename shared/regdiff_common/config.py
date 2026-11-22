@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     llm_mode: Literal["mock", "openai", "gemini"] = "mock"
     llm_model: str = ""
     llm_api_key: str = ""
-    llm_timeout_seconds: float = 60.0
+    llm_timeout_seconds: float = 30.0
     embeddings_mode: Literal["mock", "fastembed"] = "mock"
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     model_cache_dir: str = "./data/models"

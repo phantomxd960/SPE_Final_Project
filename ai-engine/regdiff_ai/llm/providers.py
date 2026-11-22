@@ -17,8 +17,9 @@ from regdiff_common.logging import log_event
 
 log = logging.getLogger(__name__)
 
-DEFAULT_MODELS = {"openai": "gpt-4o-mini", "gemini": "gemini-flash-latest"}
+DEFAULT_MODELS = {"openai": "gpt-4o-mini", "gemini": "gemini-3.5-flash"}
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+HTTP_ATTEMPTS = 2  # per call; assess() adds one more validated attempt, then falls back
 
 
 class LLMError(Exception):
@@ -102,7 +103,7 @@ class _HttpLLM:
 
     def complete_json(self, system: str, user: str) -> str:
         last_error: Exception | None = None
-        for attempt in range(1, 4):
+        for attempt in range(1, HTTP_ATTEMPTS + 1):
             started = time.perf_counter()
             try:
                 response = self._post(system, user)
@@ -122,7 +123,8 @@ class _HttpLLM:
                 return self._extract(response.json())
             except (httpx.TransportError, LLMError) as exc:
                 last_error = exc
-                time.sleep(2 ** (attempt - 1))
+                if attempt < HTTP_ATTEMPTS:
+                    time.sleep(2 * attempt)
             except httpx.HTTPStatusError as exc:
                 raise LLMError(f"{self.provider} rejected the request: HTTP {exc.response.status_code}") from exc
         raise LLMError(f"{self.provider} failed after retries: {last_error}")

@@ -21,7 +21,8 @@ from regdiff_common.logging import configure_logging, log_event
 
 log = logging.getLogger("regdiff_ai.worker")
 
-HEARTBEAT_LIMIT_SECONDS = 60
+IDLE_LIMIT_SECONDS = 60  # the polling loop must come round at least this often
+JOB_LIMIT_SECONDS = 900  # a single job (a comparison with LLM calls) may take this long
 
 
 class Worker:
@@ -32,6 +33,7 @@ class Worker:
         self.llm = get_llm_client(self.settings)
         self.stopping = threading.Event()
         self.heartbeat = time.monotonic()
+        self.job_started: float | None = None
 
     def run(self) -> None:
         log_event(log, "worker_started", llm=self.llm.name, embedder=self.embedder.name)
@@ -52,6 +54,7 @@ class Worker:
             if job is None:
                 return False
             started = time.perf_counter()
+            self.job_started = time.monotonic()
             fields = {"job_id": job.id, "job_type": job.type, "attempt": job.attempts}
             log_event(log, "job_started", **fields)
             try:
@@ -79,6 +82,8 @@ class Worker:
                 else:
                     jobs.retry_later(session, job, str(exc), delay_seconds=2**job.attempts * 5)
                     log_event(log, "job_retry", level=logging.WARNING, status="queued", error=str(exc), **fields)
+            finally:
+                self.job_started = None
             return True
 
     def _dispatch(self, session, job) -> dict:
@@ -89,7 +94,14 @@ class Worker:
         raise PermanentJobError(f"Unknown job type '{job.type}'")
 
     def healthy(self) -> bool:
-        return time.monotonic() - self.heartbeat < HEARTBEAT_LIMIT_SECONDS
+        """Alive while idle-polling, or while a job runs within its time budget.
+
+        Long comparisons (several LLM calls) must not look like a hung worker.
+        """
+        now = time.monotonic()
+        if self.job_started is not None:
+            return now - self.job_started < JOB_LIMIT_SECONDS
+        return now - self.heartbeat < IDLE_LIMIT_SECONDS
 
 
 def _ms(started: float) -> int:
