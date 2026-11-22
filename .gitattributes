@@ -1,0 +1,5 @@
+# Shell scripts and YAML must keep LF endings, even when checked out on Windows,
+# or they fail inside Linux containers and Jenkins.
+* text=auto eol=lf
+*.png binary
+*.pdf binary

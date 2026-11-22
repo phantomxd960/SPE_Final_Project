@@ -1,0 +1,11 @@
+# Build context for the backend and ai-worker images is the repository root;
+# only shared/, backend/, ai-engine/ and docker/ are needed.
+*
+!shared/
+!backend/
+!ai-engine/
+!docker/python-entrypoint.sh
+**/__pycache__
+**/*.egg-info
+**/tests
+**/.pytest_cache

@@ -1,0 +1,11 @@
+# Uploaded documents, shared by the backend (writes) and the ai-worker (reads).
+# ReadWriteOnce is enough on a single-node demo cluster (Minikube / Docker Desktop).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: documents
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi

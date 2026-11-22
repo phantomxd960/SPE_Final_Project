@@ -1,0 +1,15 @@
+# Filebeat for Docker Compose: ship the logs of containers labelled
+# co.elastic.logs/enabled=true (backend and ai-worker) to Logstash.
+filebeat.autodiscover:
+  providers:
+    - type: docker
+      hints.enabled: true
+      hints.default_config.enabled: false
+
+processors:
+  - add_docker_metadata: ~
+
+output.logstash:
+  hosts: ["logstash:5044"]
+
+logging.level: warning

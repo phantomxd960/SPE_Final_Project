@@ -1,0 +1,12 @@
+# Bring a clean machine to a working RegulationDiff environment with one command (DEV-12):
+#   cd ansible && ansible-playbook playbooks/site.yml
+# Tags let you run one part: --tags kubernetes,monitoring
+- name: Set up the RegulationDiff environment
+  hosts: all
+  roles:
+    - { role: common, tags: [common] }
+    - { role: docker, tags: [docker] }
+    - { role: kubernetes, tags: [kubernetes] }
+    - { role: vault, tags: [vault], when: use_vault | bool }
+    - { role: monitoring, tags: [monitoring] }
+    - { role: application, tags: [application] }

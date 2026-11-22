@@ -1,0 +1,42 @@
+# Deploy the exact images built by the pipeline (DEV-7) and wait for a healthy rollout.
+
+- name: Create the Kubernetes Secret (only when Vault is not used)
+  when: not (use_vault | bool)
+  no_log: true
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl apply -f - <<'EOF'
+    {{ lookup('template', 'secrets.yaml.j2') }}
+    EOF
+  args:
+    executable: /bin/bash
+  register: secret_apply
+  changed_when: "'unchanged' not in secret_apply.stdout"
+
+- name: Render the {{ k8s_overlay }} overlay
+  ansible.builtin.command: kubectl kustomize {{ k8s_overlay_dir }}
+  register: rendered
+  changed_when: false
+
+- name: Apply manifests for build {{ image_tag }}
+  ansible.builtin.command:
+    cmd: kubectl apply -f -
+    stdin: "{{ rendered.stdout | replace('__REGISTRY__', registry) | replace('__IMAGE_TAG__', image_tag | string) }}"
+  register: applied
+  changed_when: "'configured' in applied.stdout or 'created' in applied.stdout"
+
+- name: Wait for the rollout to finish
+  ansible.builtin.command: "kubectl -n {{ app_namespace }} rollout status {{ item }} --timeout={{ rollout_timeout }}"
+  loop: "{{ app_workloads }}"
+  changed_when: false
+
+- name: Report the running images
+  ansible.builtin.command: >-
+    kubectl -n {{ app_namespace }} get deployments
+    -o custom-columns=NAME:.metadata.name,READY:.status.readyReplicas,IMAGE:.spec.template.spec.containers[0].image
+  register: running
+  changed_when: false
+
+- name: Deployment summary
+  ansible.builtin.debug:
+    msg: "{{ running.stdout_lines }}"

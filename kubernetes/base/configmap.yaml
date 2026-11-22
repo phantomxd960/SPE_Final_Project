@@ -1,0 +1,18 @@
+# Non-secret settings. Secrets (DB_PASSWORD, JWT_SECRET, ADMIN_PASSWORD, LLM_API_KEY)
+# come from Vault or from the regulationdiff-secrets Secret.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: regulationdiff
+  DB_USER: regulationdiff
+  ADMIN_EMAIL: admin@regulationdiff.local
+  LLM_MODE: mock
+  LLM_MODEL: ""
+  EMBEDDINGS_MODE: fastembed
+  GRAPH_INFERRED_THRESHOLD: "0.75"
+  STORAGE_DIR: /data/documents
+  LOG_LEVEL: INFO

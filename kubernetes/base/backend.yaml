@@ -1,0 +1,62 @@
+# Backend API. Rolling update with maxUnavailable 0 + readiness probe + preStop
+# delay = no failed requests during a deployment (DEV-14).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: backend }
+  template:
+    metadata:
+      labels: { app: backend }
+    spec:
+      serviceAccountName: backend
+      terminationGracePeriodSeconds: 30
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001 }
+      containers:
+        - name: backend
+          image: regulationdiff-backend
+          envFrom:
+            - configMapRef: { name: app-config }
+            - secretRef: { name: regulationdiff-secrets, optional: true }
+          ports:
+            - { containerPort: 8000, name: http }
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+            failureThreshold: 30
+          lifecycle:
+            preStop:
+              exec: { command: ["sleep", "5"] }  # let the Service stop routing before shutdown
+          resources:
+            requests: { cpu: 100m, memory: 384Mi }
+            limits: { cpu: 500m, memory: 768Mi }
+          securityContext: { allowPrivilegeEscalation: false }
+          volumeMounts:
+            - { name: documents, mountPath: /data/documents }
+      volumes:
+        - name: documents
+          persistentVolumeClaim: { claimName: documents }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  selector: { app: backend }
+  ports:
+    - { port: 8000, targetPort: http, name: http }

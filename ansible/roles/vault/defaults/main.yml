@@ -1,0 +1,7 @@
+vault_namespace: vault
+vault_chart_version: 0.29.1
+# Dev mode keeps data in memory: re-run this role after a cluster restart to re-seed it.
+vault_root_token: "{{ lookup('env', 'VAULT_ROOT_TOKEN') | default('root', true) }}"
+vault_secret_path: secret/regulationdiff/app
+vault_role: regulationdiff
+vault_service_accounts: [backend, ai-worker, postgres]

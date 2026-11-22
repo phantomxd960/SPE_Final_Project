@@ -1,0 +1,3 @@
+monitoring_namespace: logging
+monitoring_manifests: "{{ repo_root }}/monitoring/kubernetes"
+logstash_pipeline_dir: "{{ repo_root }}/monitoring/logstash/pipeline"

@@ -1,0 +1,10 @@
+# Adds Vault agent injection to the pods that need secrets. The agent runs as an
+# init container only (pre-populate-only), renders /vault/secrets/*, and exits,
+# which keeps memory use low on a laptop cluster.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - path: app-secrets.yaml
+    target: { kind: Deployment, name: "backend|ai-worker" }
+  - path: postgres-secrets.yaml
+    target: { kind: StatefulSet, name: postgres }

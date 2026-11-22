@@ -1,0 +1,180 @@
+// RegulationDiff delivery pipeline (SRS Section 5.1).
+// Job setup: "Pipeline script from SCM", script path jenkins/Jenkinsfile,
+// "GitHub hook trigger for GITScm polling" enabled (DEV-2).
+//
+// Jenkins credentials used (never stored in the repository, DEV-6):
+//   dockerhub-credentials  username/password  Docker Hub account
+//   kubeconfig             secret file        access to the target cluster
+
+pipeline {
+  agent any
+
+  triggers {
+    githubPush()
+  }
+
+  options {
+    timestamps()
+    disableConcurrentBuilds()
+    buildDiscarder(logRotator(numToKeepStr: '20'))
+    timeout(time: 45, unit: 'MINUTES')
+  }
+
+  environment {
+    DOCKERHUB_NAMESPACE = "${env.DOCKERHUB_NAMESPACE ?: 'regulationdiff'}"
+    IMAGE_TAG = "${env.BUILD_NUMBER}"
+    KUBECONFIG = credentials('kubeconfig')
+    PIP_DISABLE_PIP_VERSION_CHECK = '1'
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+        script {
+          env.GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+          env.BUILD_TIME = sh(script: 'date -u +%Y-%m-%dT%H:%M:%SZ', returnStdout: true).trim()
+        }
+        sh '''
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install -q -e "shared[dev]" -e "ai-engine[dev]" -e "backend[dev]"
+          mkdir -p reports
+        '''
+      }
+    }
+
+    stage('Lint') {
+      parallel {
+        stage('Python') {
+          steps { sh '. .venv/bin/activate && ruff check . && ruff format --check .' }
+        }
+        stage('Frontend') {
+          steps { dir('frontend') { sh 'npm ci --no-audit --no-fund && npm run lint' } }
+        }
+      }
+    }
+
+    stage('Unit tests') {
+      parallel {
+        stage('Python') {
+          steps {
+            sh '''
+              . .venv/bin/activate
+              pytest shared/tests ai-engine/tests backend/tests \
+                --junitxml=reports/unit.xml \
+                --cov=regdiff_common --cov=regdiff_ai --cov=regdiff_api \
+                --cov-report=xml:reports/coverage.xml --cov-report=term
+            '''
+          }
+        }
+        stage('Frontend') {
+          steps { dir('frontend') { sh 'npm test' } }
+        }
+      }
+    }
+
+    stage('Build images') {
+      parallel {
+        stage('backend') {
+          steps { sh "docker build -f backend/Dockerfile ${buildArgs()} -t ${image('backend')} ." }
+        }
+        stage('ai-worker') {
+          steps { sh "docker build -f ai-engine/Dockerfile ${buildArgs()} -t ${image('ai-worker')} ." }
+        }
+        stage('frontend') {
+          steps { sh "docker build ${buildArgs()} -t ${image('frontend')} frontend" }
+        }
+      }
+    }
+
+    stage('Integration and API tests') {
+      steps {
+        sh '''
+          . .venv/bin/activate
+          export TEST_DATABASE_URL="$(bash scripts/ci/test-db.sh start)"
+          pytest tests --junitxml=reports/integration.xml
+        '''
+      }
+      post {
+        always { sh 'bash scripts/ci/test-db.sh stop' }
+      }
+    }
+
+    stage('Security scan') {
+      steps {
+        script {
+          ['backend', 'ai-worker', 'frontend'].each { name ->
+            // Fail only on critical findings that have a fix (DEV-15).
+            sh """
+              docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache \
+                aquasec/trivy:0.57.1 image --quiet --severity CRITICAL --ignore-unfixed --exit-code 1 \
+                ${image(name)} | tee reports/trivy-${name}.txt
+            """
+          }
+        }
+      }
+    }
+
+    stage('Push to Docker Hub') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials',
+                                          usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+          sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
+        }
+        script {
+          ['backend', 'ai-worker', 'frontend'].each { name ->
+            sh "docker tag ${image(name)} ${image(name, 'latest')}"
+            sh "docker push ${image(name)} && docker push ${image(name, 'latest')}"
+          }
+        }
+      }
+      post {
+        always { sh 'docker logout || true' }
+      }
+    }
+
+    stage('Deploy with Ansible') {
+      steps {
+        script { env.DEPLOY_STARTED = 'true' }
+        dir('ansible') {
+          sh "ansible-playbook playbooks/deploy.yml -e image_tag=${IMAGE_TAG} -e registry=${DOCKERHUB_NAMESPACE}"
+        }
+      }
+    }
+
+    stage('Smoke test') {
+      steps {
+        sh "bash scripts/ci/smoke-test.sh ${IMAGE_TAG}"
+      }
+    }
+  }
+
+  post {
+    failure {
+      script {
+        if (env.DEPLOY_STARTED == 'true') {
+          echo 'Deployment failed its checks: rolling back.'
+          sh 'bash scripts/ci/rollback.sh'
+        }
+      }
+    }
+    always {
+      junit allowEmptyResults: true, testResults: 'reports/*.xml'
+      archiveArtifacts allowEmptyArchive: true, artifacts: 'reports/**'
+    }
+    cleanup {
+      sh "docker image prune -f --filter label!=keep >/dev/null 2>&1 || true"
+    }
+  }
+}
+
+def image(String name, String tag = env.IMAGE_TAG) {
+  return "${env.DOCKERHUB_NAMESPACE}/regulationdiff-${name}:${tag}"
+}
+
+def buildArgs() {
+  return "--build-arg BUILD_NUMBER=${env.BUILD_NUMBER} " +
+         "--build-arg GIT_COMMIT=${env.GIT_COMMIT_SHORT} " +
+         "--build-arg BUILD_TIME=${env.BUILD_TIME}"
+}

@@ -1,0 +1,22 @@
+# Repository-wide tool configuration. The Python packages themselves are
+# shared/, ai-engine/ and backend/, each with its own pyproject.toml.
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["frontend", "**/migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "SIM"]
+ignore = [
+    "B008",  # FastAPI dependencies are declared in default arguments
+    "N818",  # RetryLater reads better than RetryLaterError
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["regdiff_common", "regdiff_ai", "regdiff_api"]
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+testpaths = ["shared/tests", "ai-engine/tests", "backend/tests", "tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

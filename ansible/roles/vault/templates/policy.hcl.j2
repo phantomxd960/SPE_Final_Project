@@ -1,0 +1,4 @@
+# Read-only access to the application's secrets, nothing else.
+path "secret/data/regulationdiff/*" {
+  capabilities = ["read"]
+}

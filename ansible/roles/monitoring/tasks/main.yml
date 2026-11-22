@@ -1,0 +1,36 @@
+# ELK: Filebeat DaemonSet -> Logstash -> Elasticsearch -> Kibana (DEV-10).
+
+- name: Load the Logstash pipeline into a ConfigMap
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl -n {{ monitoring_namespace }} create configmap logstash-pipeline \
+      --from-file={{ logstash_pipeline_dir }} --dry-run=client -o yaml | kubectl apply -f -
+  args:
+    executable: /bin/bash
+  register: pipeline_apply
+  changed_when: "'unchanged' not in pipeline_apply.stdout"
+
+- name: Apply the ELK manifests
+  ansible.builtin.command: kubectl apply -f {{ monitoring_manifests }}
+  register: elk_apply
+  changed_when: "'created' in elk_apply.stdout or 'configured' in elk_apply.stdout"
+
+- name: Restart Logstash when its pipeline changed
+  when: pipeline_apply.changed
+  ansible.builtin.command: kubectl -n {{ monitoring_namespace }} rollout restart deployment/logstash
+  changed_when: true
+
+- name: Wait for the ELK stack
+  ansible.builtin.command: "kubectl -n {{ monitoring_namespace }} rollout status {{ item }} --timeout=600s"
+  loop:
+    - statefulset/elasticsearch
+    - deployment/logstash
+    - deployment/kibana
+    - daemonset/filebeat
+  changed_when: false
+
+- name: Create the Kibana data view and import dashboards
+  ansible.builtin.command: sh {{ repo_root }}/monitoring/kibana/setup.sh
+  environment:
+    KIBANA_URL: "{{ kibana_url }}"
+  changed_when: true

@@ -1,0 +1,34 @@
+# Docker Desktop (Windows/macOS, including its WSL integration) already provides
+# the docker CLI; on a plain Linux host install Docker Engine.
+- name: Check for an existing Docker CLI
+  ansible.builtin.command: docker version --format "{{ '{{' }}.Server.Version{{ '}}' }}"
+  register: docker_version
+  changed_when: false
+  failed_when: false
+
+- name: Install Docker Engine
+  when: docker_version.rc != 0 and ansible_facts.os_family == "Debian"
+  become: true
+  block:
+    - name: Install packages
+      ansible.builtin.apt:
+        name: [docker.io, docker-compose-v2]
+        state: present
+        update_cache: true
+
+    - name: Start Docker
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Let users run Docker without sudo
+      ansible.builtin.user:
+        name: "{{ item }}"
+        groups: docker
+        append: true
+      loop: "{{ docker_users }}"
+
+- name: Verify Docker
+  ansible.builtin.command: docker info --format "{{ '{{' }}.ServerVersion{{ '}}' }}"
+  changed_when: false

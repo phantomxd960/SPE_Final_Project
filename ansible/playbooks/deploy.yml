@@ -1,0 +1,6 @@
+# Deploy one build to Kubernetes; called by the Jenkins pipeline (DEV-7):
+#   ansible-playbook playbooks/deploy.yml -e image_tag=42 -e registry=<dockerhub-user>
+- name: Deploy RegulationDiff
+  hosts: all
+  roles:
+    - application

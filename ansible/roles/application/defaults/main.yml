@@ -1,0 +1,8 @@
+k8s_overlay: "{{ 'vault' if use_vault | bool else 'dev' }}"
+k8s_overlay_dir: "{{ repo_root }}/kubernetes/overlays/{{ k8s_overlay }}"
+rollout_timeout: 300s
+app_workloads:
+  - statefulset/postgres
+  - deployment/backend
+  - deployment/ai-worker
+  - deployment/frontend

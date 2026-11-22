@@ -1,0 +1,137 @@
+# Local development stack (DEV-9). From the repository root:
+#   docker compose -f docker/docker-compose.yml up --build            app + database
+#   docker compose -f docker/docker-compose.yml --profile elk up -d   ... plus the ELK stack
+# Open http://localhost:3000 (UI), http://localhost:8000/api/docs (API), http://localhost:5601 (Kibana).
+
+name: regulationdiff
+
+x-app: &app
+  env_file:
+    - path: ../.env
+      required: false
+  environment: &app-env
+    DB_HOST: postgres
+    DB_NAME: regulationdiff
+    DB_USER: regulationdiff
+    DB_PASSWORD: ${DB_PASSWORD:-regulationdiff}
+  volumes:
+    - documents:/data/documents
+  restart: unless-stopped
+  labels:
+    co.elastic.logs/enabled: "true"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: regulationdiff
+      POSTGRES_USER: regulationdiff
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-regulationdiff}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U regulationdiff -d regulationdiff"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    <<: *app
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      args: &build-args
+        BUILD_NUMBER: ${BUILD_NUMBER:-dev}
+        GIT_COMMIT: ${GIT_COMMIT:-local}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    image: regulationdiff-backend:${BUILD_NUMBER:-dev}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ai-worker:
+    <<: *app
+    build:
+      context: ..
+      dockerfile: ai-engine/Dockerfile
+      args: *build-args
+    image: regulationdiff-ai-worker:${BUILD_NUMBER:-dev}
+    depends_on:
+      backend:
+        condition: service_healthy  # the backend applies database migrations first
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        BUILD_NUMBER: ${BUILD_NUMBER:-dev}
+        GIT_COMMIT: ${GIT_COMMIT:-local}
+    image: regulationdiff-frontend:${BUILD_NUMBER:-dev}
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "3000:8080"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # ------------------------------------------------------------ ELK (profile "elk")
+  elasticsearch:
+    profiles: [elk]
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      retries: 30
+
+  logstash:
+    profiles: [elk]
+    image: docker.elastic.co/logstash/logstash:8.15.3
+    environment:
+      LS_JAVA_OPTS: -Xms256m -Xmx256m
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      XPACK_MONITORING_ENABLED: "false"
+    volumes:
+      - ../monitoring/logstash/pipeline:/usr/share/logstash/pipeline:ro
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  kibana:
+    profiles: [elk]
+    image: docker.elastic.co/kibana/kibana:8.15.3
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  filebeat:
+    profiles: [elk]
+    image: docker.elastic.co/beats/filebeat:8.15.3
+    user: root
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    volumes:
+      - ../monitoring/filebeat/filebeat.docker.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - logstash
+
+volumes:
+  pgdata:
+  documents:
+  esdata:

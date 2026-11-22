@@ -1,0 +1,18 @@
+# Development environment. Secrets come from the regulationdiff-secrets Secret,
+# which the Ansible application role creates when Vault is not used.
+# __REGISTRY__ and __IMAGE_TAG__ are filled in by Ansible with the Docker Hub
+# namespace and the Jenkins build number (DEV-7).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+images:
+  - name: regulationdiff-backend
+    newName: __REGISTRY__/regulationdiff-backend
+    newTag: __IMAGE_TAG__
+  - name: regulationdiff-ai-worker
+    newName: __REGISTRY__/regulationdiff-ai-worker
+    newTag: __IMAGE_TAG__
+  - name: regulationdiff-frontend
+    newName: __REGISTRY__/regulationdiff-frontend
+    newTag: __IMAGE_TAG__

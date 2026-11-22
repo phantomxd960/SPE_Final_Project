@@ -1,0 +1,22 @@
+# Environment: dev (single-node laptop cluster).
+env_name: dev
+repo_root: "{{ playbook_dir | dirname | dirname }}"
+
+# Kubernetes flavour decides how addons are installed: minikube | docker-desktop | generic
+k8s_flavour: "{{ lookup('env', 'K8S_FLAVOUR') | default('docker-desktop', true) }}"
+app_namespace: regulationdiff
+
+# Images (DEV-5, DEV-7): Jenkins passes image_tag=<build number>.
+registry: "{{ lookup('env', 'DOCKERHUB_NAMESPACE') | default('regulationdiff', true) }}"
+image_tag: latest
+
+# Secrets: Vault (DEV-11) when use_vault is true, otherwise a Kubernetes Secret.
+use_vault: true
+app_secrets:
+  DB_PASSWORD: "{{ lookup('env', 'DB_PASSWORD') | default('regulationdiff', true) }}"
+  JWT_SECRET: "{{ lookup('env', 'JWT_SECRET') | default('dev-only-jwt-secret-change-me', true) }}"
+  ADMIN_PASSWORD: "{{ lookup('env', 'ADMIN_PASSWORD') | default('admin123', true) }}"
+  LLM_API_KEY: "{{ lookup('env', 'LLM_API_KEY') | default('', true) }}"
+
+# Monitoring
+kibana_url: "{{ 'http://localhost:30601' if k8s_flavour == 'docker-desktop' else 'http://' + (lookup('pipe', 'minikube ip 2>/dev/null') or 'localhost') + ':30601' }}"

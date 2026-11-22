@@ -1,0 +1,83 @@
+# HashiCorp Vault with the agent injector (DEV-11). Pods authenticate with the
+# Kubernetes auth method and receive secrets as files at start-up.
+
+- name: Check for Helm
+  ansible.builtin.command: helm version --short
+  register: helm_check
+  changed_when: false
+  failed_when: false
+
+- name: Install Helm
+  when: helm_check.rc != 0
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Add the HashiCorp Helm repository
+  ansible.builtin.command: helm repo add hashicorp https://helm.releases.hashicorp.com --force-update
+  changed_when: false
+
+- name: Install or upgrade Vault
+  ansible.builtin.command: >-
+    helm upgrade --install vault hashicorp/vault
+    --namespace {{ vault_namespace }} --create-namespace
+    --version {{ vault_chart_version }}
+    --set server.dev.enabled=true
+    --set server.dev.devRootToken={{ vault_root_token }}
+    --set injector.enabled=true
+    --wait --timeout 5m
+  changed_when: true
+  no_log: true
+
+- name: Wait for the Vault server
+  ansible.builtin.command: kubectl -n {{ vault_namespace }} wait --for=condition=Ready pod/vault-0 --timeout=180s
+  changed_when: false
+
+- name: Configure Vault
+  vars:
+    vault_exec: "kubectl -n {{ vault_namespace }} exec vault-0 -- env VAULT_TOKEN={{ vault_root_token }}"
+  no_log: true
+  block:
+    - name: Enable the Kubernetes auth method
+      ansible.builtin.command: "{{ vault_exec }} vault auth enable kubernetes"
+      register: auth_enable
+      changed_when: auth_enable.rc == 0
+      failed_when: auth_enable.rc != 0 and 'path is already in use' not in auth_enable.stderr
+
+    - name: Point the auth method at the cluster API
+      ansible.builtin.command: >-
+        {{ vault_exec }} sh -c 'vault write auth/kubernetes/config
+        kubernetes_host="https://$KUBERNETES_PORT_443_TCP_ADDR:443"'
+      changed_when: true
+
+    - name: Write the read-only policy
+      ansible.builtin.shell: >-
+        echo '{{ lookup("template", "policy.hcl.j2") }}' |
+        {{ vault_exec }} vault policy write {{ vault_role }} -
+      changed_when: true
+
+    - name: Bind the policy to the application service accounts
+      ansible.builtin.command: >-
+        {{ vault_exec }} vault write auth/kubernetes/role/{{ vault_role }}
+        bound_service_account_names={{ vault_service_accounts | join(',') }}
+        bound_service_account_namespaces={{ app_namespace }}
+        policies={{ vault_role }}
+        ttl=1h
+      changed_when: true
+
+    - name: Store the application secrets
+      ansible.builtin.command:
+        argv: "{{ vault_exec.split() + ['vault', 'kv', 'put', vault_secret_path] + secret_pairs }}"
+      vars:
+        secret_items: "{{ app_secrets | dict2items }}"
+        secret_pairs: "{{ secret_items | map(attribute='key') | zip(secret_items | map(attribute='value'))
+                          | map('join', '=') | list }}"
+      changed_when: true
+
+- name: Remove the plain Kubernetes Secret so Vault is the only source
+  ansible.builtin.command: kubectl -n {{ app_namespace }} delete secret regulationdiff-secrets --ignore-not-found
+  register: secret_delete
+  changed_when: "'deleted' in secret_delete.stdout"

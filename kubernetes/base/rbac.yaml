@@ -1,0 +1,23 @@
+# One service account per workload (DEV-17). None of them is bound to a Role:
+# the application never calls the Kubernetes API. The token is mounted only
+# because the Vault agent uses it to authenticate (Kubernetes auth method).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backend
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ai-worker
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: frontend
+automountServiceAccountToken: false

@@ -1,0 +1,55 @@
+- name: Check for kubectl
+  ansible.builtin.command: kubectl version --client
+  register: kubectl_check
+  changed_when: false
+  failed_when: false
+
+- name: Install kubectl
+  when: kubectl_check.rc != 0
+  become: true
+  ansible.builtin.get_url:
+    url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
+    dest: /usr/local/bin/kubectl
+    mode: "0755"
+
+- name: Check that the cluster is reachable
+  ansible.builtin.command: kubectl cluster-info
+  changed_when: false
+
+# --- addons: metrics-server (for the HPA) and an NGINX ingress controller
+- name: Enable Minikube addons
+  when: k8s_flavour == "minikube"
+  ansible.builtin.command: "minikube addons enable {{ item }}"
+  loop: [metrics-server, ingress]
+  changed_when: true
+
+- name: Install addons on Docker Desktop or another cluster
+  when: k8s_flavour != "minikube"
+  block:
+    - name: Install metrics-server
+      ansible.builtin.command: "kubectl apply -f {{ metrics_server_manifest }}"
+      register: metrics_apply
+      changed_when: "'configured' in metrics_apply.stdout or 'created' in metrics_apply.stdout"
+
+    - name: Allow metrics-server to scrape kubelets with self-signed certificates (local clusters)
+      ansible.builtin.command: >-
+        kubectl -n kube-system patch deployment metrics-server --type=json
+        -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+      register: metrics_patch
+      changed_when: metrics_patch.rc == 0
+      failed_when: false  # already patched
+
+    - name: Install the NGINX ingress controller
+      ansible.builtin.command: "kubectl apply -f {{ ingress_nginx_manifest }}"
+      register: ingress_apply
+      changed_when: "'created' in ingress_apply.stdout"
+
+- name: Create the application and logging namespaces
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl create namespace {{ item }} --dry-run=client -o yaml | kubectl apply -f -
+  args:
+    executable: /bin/bash
+  loop: ["{{ app_namespace }}", logging]
+  register: namespace_apply
+  changed_when: "'created' in namespace_apply.stdout"
