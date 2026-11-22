@@ -9,6 +9,7 @@
 import hashlib
 import math
 import re
+import threading
 from functools import lru_cache
 from typing import Protocol
 
@@ -52,9 +53,13 @@ class FastEmbedder:
 
         self.name = model_name
         self._model = TextEmbedding(model_name=model_name, cache_dir=cache_dir, threads=threads)
+        # One inference at a time per process: concurrent runs each allocate their own
+        # working memory and get a pod OOM-killed under load. More load means more pods (HPA).
+        self._lock = threading.Lock()
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        return [vector.tolist() for vector in self._model.embed(texts)]
+        with self._lock:
+            return [vector.tolist() for vector in self._model.embed(texts)]
 
 
 @lru_cache
